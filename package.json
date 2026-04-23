@@ -1,0 +1,23 @@
+{
+  "name": "sui-starter-kit",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "test": "node --require ts-node/register --test 'scripts/sui-helper/derive-latest-package-id/tests/**/*.test.ts'"
+  },
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "devDependencies": {
+    "@types/node": "^24.10.1",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "@mysten/sui": "^1.44.0",
+    "@types/yargs": "^17.0.34",
+    "dotenv": "^17.2.3",
+    "ethers": "^6.15.0",
+    "yargs": "^18.0.0"
+  }
+}

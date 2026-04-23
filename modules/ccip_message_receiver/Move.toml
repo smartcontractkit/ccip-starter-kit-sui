@@ -1,0 +1,6 @@
+[package]
+name = "ccip_message_receiver"
+edition = "2024"
+
+[dependencies]
+ccip = { git = "https://github.com/smartcontractkit/chainlink-sui.git", subdir = "contracts/ccip/ccip", rev = "add-chain-selectors" }
