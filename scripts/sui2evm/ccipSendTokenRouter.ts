@@ -1,4 +1,4 @@
-import { Transaction } from '@mysten/sui/transactions';
+import { Transaction, type TransactionObjectArgument } from '@mysten/sui/transactions';
 import { Ed25519Keypair } from '@mysten/sui/keypairs/ed25519';
 import { networkConfig, supportedEvmChains } from "../../helperConfig";
 import { splitCoin } from '../sui-helper/splitCoin';
@@ -152,6 +152,12 @@ async function sendTokenFromSuiToEvm(tokenAmount: number) {
     };
 
     buildTokenTransferPTB(tx, buildArgs);
+
+    // ccip_send borrows the fee coin by &mut and only withdraws the actual on-chain fee,
+    // so the split-off native fee coin has a leftover balance that must be handed back.
+    if (!useLinkForFees) {
+      tx.transferObjects([feeResult.feeToken as TransactionObjectArgument], senderAddress);
+    }
 
     // Execute transaction
     const result = await suiClient.signAndExecuteTransaction({ signer: keypair, transaction: tx });

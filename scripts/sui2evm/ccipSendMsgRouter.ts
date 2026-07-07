@@ -1,4 +1,4 @@
-import { Transaction } from '@mysten/sui/transactions';
+import { Transaction, type TransactionObjectArgument } from '@mysten/sui/transactions';
 import { Ed25519Keypair } from '@mysten/sui/keypairs/ed25519';
 import { AbiCoder } from 'ethers';
 import { networkConfig, supportedEvmChains } from "../../helperConfig";
@@ -128,8 +128,26 @@ async function sendMessageFromSuiToEvm(messageString: string) {
 
         buildMessageOnlyPTB(tx, buildArgs);
 
+        // ccip_send borrows the fee coin by &mut and only withdraws the actual on-chain fee,
+        // so the split-off native fee coin has a leftover balance that must be handed back.
+        if (!useLinkForFees) {
+            tx.transferObjects([feeResult.feeToken as TransactionObjectArgument], senderAddress);
+        }
+
         // Execute transaction
-        const result = await suiClient.signAndExecuteTransaction({ signer: keypair, transaction: tx });
+        const result = await suiClient.signAndExecuteTransaction({
+            signer: keypair,
+            transaction: tx,
+            options: { showEffects: true, showEvents: true },
+        });
+        console.log(`Digest: ${result.digest} (https://suiscan.xyz/${suiExplorerNetwork}/tx/${result.digest})`);
+
+        // Surface Move aborts instead of masquerading as "No events found in transaction"
+        const status = result.effects?.status;
+        if (status?.status !== 'success') {
+            throw new Error(`ccip_send failed on-chain: ${status?.error ?? 'unknown error'}`);
+        }
+
         await suiClient.waitForTransaction({ digest: result.digest, options: { showEffects: true } });
 
         // Fetch and display CCIP Message ID
