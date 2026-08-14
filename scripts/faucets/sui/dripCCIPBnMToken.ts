@@ -1,9 +1,9 @@
 import { Transaction } from '@mysten/sui/transactions';
-import { getFullnodeUrl, SuiClient } from '@mysten/sui/client';
 import { Ed25519Keypair } from '@mysten/sui/keypairs/ed25519';
 import { networkConfig } from '../../../helperConfig';
 import { getObjectFromPackage } from '../../sui-helper/getObjectFromPackage';
 import { getCoinDetails } from '../../sui-helper/getCoinDetails';
+import { getSuiClient } from '../../sui-helper/suiNetwork';
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -15,7 +15,10 @@ if (!privateKey) {
 
 const keypair = Ed25519Keypair.fromSecretKey(privateKey);
 const senderAddress = keypair.getPublicKey().toSuiAddress();
-const suiClient = new SuiClient({ url: getFullnodeUrl('testnet') });
+// Use the env-aware client (SUI_TESTNET_RPC_URL) so tx build/execute goes to the
+// same RPC as getCoinDetails/getObjectFromPackage. The public fullnode
+// (getFullnodeUrl('testnet')) 404s on sui_getNormalizedMoveFunction during build.
+const suiClient = getSuiClient('suiTestnet');
 
 /**
  * Drips CCIP-BnM tokens from the faucet to the caller's address

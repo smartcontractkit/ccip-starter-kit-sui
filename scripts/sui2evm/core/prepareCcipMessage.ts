@@ -22,8 +22,23 @@ export interface CoinMetadata {
 export interface CcipObjects {
   ccipObjectRef: string;
   latestCcipPackageId: string;    // Latest CCIP package ID for transactions
-  latestOnRampPackageId: string;  // Latest OnRamp package ID for transactions
+  latestOnRampPackageId: string;  // OnRamp package ID used for ccip_send (latest, or original when useOriginalOnramp is set)
   onrampState: string;
+}
+
+export interface PrepareCcipObjectsOptions {
+  /**
+   * When true, target the ORIGINAL OnRamp package (the one registered in the
+   * Router, returned by getOnRampFromRouter) for the ccip_send moveCall and the
+   * fee lookup, instead of deriving the latest upgraded OnRamp package.
+   *
+   * The original OnRamp package remains callable on Sui — package objects are
+   * immutable and stay live after an upgrade — but its FeeQuoter config may
+   * predate newer destination chains, so fee calc / sends to recently added
+   * dest chains can abort when this is enabled. Use this only when you
+   * specifically need to exercise the original OnRamp deployment.
+   */
+  useOriginalOnramp?: boolean;
 }
 
 export interface TokenTransferInfo {
@@ -39,7 +54,8 @@ export interface TokenTransferInfo {
  */
 export async function prepareCcipObjects(
   chainSelector: string,
-  networkName: SuiNetworkName = 'suiTestnet'
+  networkName: SuiNetworkName = 'suiTestnet',
+  options: PrepareCcipObjectsOptions = {}
 ): Promise<CcipObjects> {
   const suiConfig = getSuiConfig(networkName);
 
@@ -67,12 +83,23 @@ export async function prepareCcipObjects(
     networkName
   );
 
-  // Get latest OnRamp package ID for transactions
-  const latestOnRampPackageId = await getLatestCcipPackageId(
-    originalOnRampPackageId,
-    'ccip_onramp',
-    networkName
-  );
+  // Resolve the OnRamp package to target for ccip_send (and the fee lookup).
+  // Default: derive the latest upgraded OnRamp package. With useOriginalOnramp,
+  // keep the original package that the Router registered — useful when you need
+  // to exercise the original OnRamp deployment rather than the latest upgrade.
+  let latestOnRampPackageId: string;
+  if (options.useOriginalOnramp) {
+    latestOnRampPackageId = originalOnRampPackageId;
+    console.log(
+      `⚠️ Using ORIGINAL OnRamp package ${originalOnRampPackageId} (latest-derivation skipped) on ${suiConfig.networkName}`
+    );
+  } else {
+    latestOnRampPackageId = await getLatestCcipPackageId(
+      originalOnRampPackageId,
+      'ccip_onramp',
+      networkName
+    );
+  }
 
   return {
     ccipObjectRef,

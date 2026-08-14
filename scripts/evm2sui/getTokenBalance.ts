@@ -1,13 +1,16 @@
-import { SuiClient, getFullnodeUrl } from '@mysten/sui/client';
 import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
-import { networkConfig } from '../../helperConfig';
 import { getObjectFromPackage } from '../sui-helper/getObjectFromPackage';
 import { getCoinDetails } from '../sui-helper/getCoinDetails';
-
-const suiClient = new SuiClient({ url: getFullnodeUrl('testnet') });
+import { getSuiClient, getSuiConfig, type SuiNetworkName } from '../sui-helper/suiNetwork';
 
 const argv = yargs(hideBin(process.argv))
+  .option('network', {
+    type: 'string',
+    description: 'Sui network to query (defaults to suiTestnet)',
+    default: 'suiTestnet',
+    choices: ['suiTestnet', 'suiMainnet'],
+  })
   .option('address', {
     type: 'string',
     description: 'Specify the Sui address or package ID to check CCIP-BnM token balance',
@@ -20,18 +23,22 @@ const argv = yargs(hideBin(process.argv))
   })
   .parseSync();
 
+const networkName: SuiNetworkName = argv.network as SuiNetworkName;
+const suiClient = getSuiClient(networkName);
+const suiConfig = getSuiConfig(networkName);
+
 async function getTokenBalance() {
   try {
     // Determine the actual address to query
     const ownerAddress = argv.isEOA 
-      ? argv.address 
-      : await getObjectFromPackage(argv.address, 'CCIPReceiverState');
+      ? argv.address
+      : await getObjectFromPackage(argv.address, 'CCIPReceiverState', networkName);
 
     console.log(`\n🔍 Fetching CCIP-BnM token balance for ${argv.isEOA ? 'EOA' : 'package'}: ${argv.address}`);
     if (!argv.isEOA) {
       console.log(`📍 CCIPReceiverState object ID: ${ownerAddress}`);
     }
-    const coinType = (await getCoinDetails(networkConfig.sui.ccipBnMCoinMetadataId) ).coinType;
+    const coinType = (await getCoinDetails(suiConfig.ccipBnMCoinMetadataId, networkName)).coinType;
     console.log(`Token type: ${coinType}`);
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 

@@ -1,12 +1,15 @@
-import { SuiClient, getFullnodeUrl } from '@mysten/sui/client';
 import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
-import { networkConfig } from '../../helperConfig';
 import { toHex } from '@mysten/sui/utils';
-
-const suiClient = new SuiClient({ url: getFullnodeUrl('testnet') });
+import { getSuiClient, getSuiConfig, type SuiNetworkName } from '../sui-helper/suiNetwork';
 
 const argv = yargs(hideBin(process.argv))
+  .option('network', {
+    type: 'string',
+    description: 'Sui network to query (defaults to suiTestnet)',
+    default: 'suiTestnet',
+    choices: ['suiTestnet', 'suiMainnet'],
+  })
   .option('suiReceiver', {
     type: 'string',
     description: 'Specify the Sui Receiver Address (package ID where the receiver module is deployed)',
@@ -14,10 +17,15 @@ const argv = yargs(hideBin(process.argv))
   })
   .parseSync();
 
+const networkName: SuiNetworkName = argv.network as SuiNetworkName;
+const suiClient = getSuiClient(networkName);
+const suiConfig = getSuiConfig(networkName);
+const suiExplorerNetwork = networkName === 'suiMainnet' ? 'mainnet' : 'testnet';
+
 async function getLatestReceivedMessage() {
   try {
     // Query events for the ReceivedMessage event type
-    const eventType = `${argv.suiReceiver}::${networkConfig.sui.ccipReceiverModuleName}::ReceivedMessage`;
+    const eventType = `${argv.suiReceiver}::${suiConfig.ccipReceiverModuleName}::ReceivedMessage`;
     
     console.log(`Querying events for: ${eventType}`);
     
@@ -41,7 +49,7 @@ async function getLatestReceivedMessage() {
     console.log('\n✅ Latest message received on Sui:');
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     console.log(`📦 Package ID: ${argv.suiReceiver}`);
-    console.log(`🔗 Transaction: https://suiscan.xyz/testnet/tx/${latestEvent.id.txDigest}`);
+    console.log(`🔗 Transaction: https://suiscan.xyz/${suiExplorerNetwork}/tx/${latestEvent.id.txDigest}`);
     console.log(`📅 Timestamp: ${latestEvent.timestampMs ? new Date(Number(latestEvent.timestampMs)).toISOString() : 'N/A'}`);
     
     // Process and display message data

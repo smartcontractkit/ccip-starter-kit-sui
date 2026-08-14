@@ -224,6 +224,94 @@ export async function handleError(
 }
 
 /**
+ * Sends a Router `ccipSend` transaction, working around OP-Stack RPC endpoints
+ * whose `eth_estimateGas` is broken — they return "intrinsic gas too high" with
+ * NO revert data for calls that actually estimate fine (eth_call succeeds).
+ * ethers skips gas estimation entirely when an explicit `gasLimit` is supplied,
+ * so:
+ *   1. Try to estimate gas normally (precise limit on healthy nodes).
+ *   2. If estimation fails WITH revert data, rethrow — it's a real revert and
+ *      the caller's handleError() will decode it.
+ *   3. If estimation fails WITHOUT revert data (opaque estimateGas failure),
+ *      fall back to a generous explicit gasLimit and send anyway. A gas limit is
+ *      a cap (unused gas is refunded), and the fallback is far under OP's 40M
+ *      block gas limit, so this is safe.
+ * If the opaque failure persists, the underlying cause is the RPC endpoint; in
+ * that case switch <chain>_RPC_URL to a healthy node (e.g. OP Sepolia's
+ * https://sepolia.optimism.io).
+ */
+export async function sendCcipWithGasFallback(
+  ccipRouterContract: ethers.Contract,
+  destChainSelector: string,
+  ccipMessage: any[],
+  overrides: { value?: bigint } = {},
+  fallbackGasLimit: bigint = 3_000_000n,
+): Promise<ethers.ContractTransactionResponse> {
+  try {
+    const estimated = await ccipRouterContract.ccipSend.estimateGas(
+      destChainSelector,
+      ccipMessage,
+      overrides,
+    );
+    return await ccipRouterContract.ccipSend(destChainSelector, ccipMessage, {
+      ...overrides,
+      gasLimit: estimated,
+    });
+  } catch (e: any) {
+    const hasRevertData = !!(e?.data ?? e?.error?.data);
+    if (hasRevertData) throw e; // real revert — let handleError decode it
+    console.warn(
+      `⚠️ estimateGas failed opaquely ("${e?.shortMessage ?? e?.message ?? e}"). ` +
+        `ccipSend is valid per eth_call; falling back to gasLimit=${fallbackGasLimit}. ` +
+        `If this keeps happening, switch your RPC URL to a healthy endpoint ` +
+        `(e.g. https://sepolia.optimism.io for OP Sepolia).`
+    );
+    return await ccipRouterContract.ccipSend(destChainSelector, ccipMessage, {
+      ...overrides,
+      gasLimit: fallbackGasLimit,
+    });
+  }
+}
+
+/**
+ * Patch the provider's `estimateGas` to fall back to a generous fixed gas limit
+ * when the RPC endpoint's gas estimation is broken. Some OP-Stack RPC endpoints
+ * return "intrinsic gas too high" with NO revert data for writes that estimate
+ * fine on healthy nodes (eth_call succeeds) — and they do this for EVERY write,
+ * not just ccipSend (ERC20 `approve`, faucet drips, etc. all hit it). ethers
+ * calls `provider.estimateGas` for any contract write that doesn't specify an
+ * explicit gasLimit, so patching the provider covers all writes from scripts
+ * using it. A gas limit is a cap (unused gas is refunded) and the fallback is
+ * far under OP's 40M block gas limit, so this is safe. On a REAL revert
+ * (estimation fails WITH revert data) the original error is rethrown so the
+ * caller's handleError() can decode it. If the opaque failure persists, the
+ * real cause is the RPC endpoint — switch <chain>_RPC_URL to a healthy node
+ * (e.g. OP Sepolia's https://sepolia.optimism.io).
+ */
+export function applyGasEstimateFallback(
+  provider: ethers.Provider,
+  fallbackGasLimit: bigint = 3_000_000n,
+): ethers.Provider {
+  const original = provider.estimateGas.bind(provider);
+  (provider as any).estimateGas = async (tx: any) => {
+    try {
+      return await original(tx);
+    } catch (e: any) {
+      const hasRevertData = !!(e?.data ?? e?.error?.data);
+      if (hasRevertData) throw e; // real revert — let handleError decode it
+      console.warn(
+        `⚠️ estimateGas failed opaquely ("${e?.shortMessage ?? e?.message ?? e}"). ` +
+          `Falling back to gasLimit=${fallbackGasLimit} for all writes via this provider. ` +
+          `If this keeps happening, switch your RPC URL to a healthy endpoint ` +
+          `(e.g. https://sepolia.optimism.io for OP Sepolia).`
+      );
+      return fallbackGasLimit;
+    }
+  };
+  return provider;
+}
+
+/**
  * Fetches the CCIP Message ID from a Sui transaction by parsing the CCIPMessageSent event
  * @param txHash - The transaction hash/digest
  * @param client - The Sui client instance

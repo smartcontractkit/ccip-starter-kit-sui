@@ -1,5 +1,5 @@
 import { SuiClient } from '@mysten/sui/client';
-import { PackageUpgradeConfig } from './config';
+import { PackageUpgradeConfig } from '../../../helperConfig';
 
 /**
  * Finds the StatePointer object owned by a package.

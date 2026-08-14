@@ -1,6 +1,6 @@
 import { deriveObjectIdWithVectorU8Key } from './deriveObjectId';
 import { networkConfig } from '../../helperConfig';
-import { getSuiClient, type SuiNetworkName } from './suiNetwork';
+import { getSuiClient, getSuiConfig, type SuiNetworkName } from './suiNetwork';
 
 /**
 * `getObjectFromPackage` attempts to find an object's ID within a package based on its name.
@@ -8,6 +8,11 @@ import { getSuiClient, type SuiNetworkName } from './suiNetwork';
 * This is useful for finding the state object's ID via the state pointer object. The pointer object is always
 * owned, however, the method includes a fallback of checking the most recent transaction's object
 * changes to find an object within the specified package.
+*
+* Fast path (Strategy 0): if `targetObjectName` is present in
+* `getSuiConfig(networkName).knownStateObjects`, the hardcoded object ID is
+* returned immediately. This bypasses `getOwnedObjects` and the historical
+* `getTransactionBlock` lookup, both of which can fail on pruning fullnodes.
 */
 export async function getObjectFromPackage(
     packageId: string,
@@ -15,6 +20,21 @@ export async function getObjectFromPackage(
     networkName: SuiNetworkName = 'suiTestnet'
 ) {
     const suiClient = getSuiClient(networkName);
+
+    // Strategy 0: hardcoded singleton state-object shortcut (see helperConfig.ts
+    // `knownStateObjects`). Only applies to the well-known CCIP singletons —
+    // anything else (per-token pool state, per-package pointers, etc.) still
+    // falls through to the discovery strategies below.
+    const suiConfig = getSuiConfig(networkName);
+    const knownStateObjects = (suiConfig as { knownStateObjects?: { [key: string]: string } })
+        .knownStateObjects;
+    const knownId = knownStateObjects?.[targetObjectName];
+    if (knownId) {
+        console.log(
+            `🔎 getObjectFromPackage: using hardcoded ${targetObjectName} = ${knownId} from ${suiConfig.networkName} config (package ${packageId} not queried)`
+        );
+        return knownId;
+    }
 
     // Strategy 1: Query objects owned by the package and derive shared objects from pointers
     let hasNextPage = true;

@@ -6,7 +6,7 @@ import FeeQuoter_1_6_ABI from "../config/abi/FeeQuoter_1_6";
 import { networkConfig, supportedEvmChains } from "../../helperConfig";
 import yargs from "yargs";
 import { hideBin } from "yargs/helpers"
-import { getEvmChainConfig, handleError, isValidSuiAddress, encodeSuiExtraArgsV1 } from "../utils/utils";
+import { getEvmChainConfig, handleError, isValidSuiAddress, encodeSuiExtraArgsV1, sendCcipWithGasFallback, applyGasEstimateFallback } from "../utils/utils";
 import { getObjectFromPackage } from "../sui-helper/getObjectFromPackage";
 import { getSuiConfig, resolveSuiNetworkName, type SuiNetworkName } from "../sui-helper/suiNetwork";
 import dotenv from "dotenv";
@@ -199,7 +199,8 @@ async function transferTokenPayLink(
         console.log("Proceeding with the token transfer...");
 
         // call ccipSend function on Router contract
-        const tx = await ccipRouterContract.ccipSend(
+        const tx = await sendCcipWithGasFallback(
+            ccipRouterContract,
             suiConfig.chainSelector,
             ccipMessage
         )
@@ -209,6 +210,7 @@ async function transferTokenPayLink(
         // wait for ccipSend tx confirmed in 3 blocks
         const confirmationToWait = 3;
         const receipt = await tx.wait(confirmationToWait);
+        if (!receipt) throw new Error("ccipSend transaction not confirmed (receipt is null).");
         console.log(
             `Transaction confirmed in block ${receipt.blockNumber} after ${confirmationToWait} confirmations.`
         )
@@ -276,7 +278,8 @@ async function transferTokenPayNative(
         console.log("Proceeding with the token transfer...");
 
         // send ccipSend transaction paying native token
-        const tx = await ccipRouterContract.ccipSend(
+        const tx = await sendCcipWithGasFallback(
+            ccipRouterContract,
             suiConfig.chainSelector,
             ccipMessage,
             {
@@ -289,6 +292,7 @@ async function transferTokenPayNative(
         console.log("Waiting for transaction confirmations..");
         const confirmationsToWait = 3;
         const receipt = await tx.wait(confirmationsToWait);
+        if (!receipt) throw new Error("ccipSend transaction not confirmed (receipt is null).");
         console.log(
             `Transaction confirmed in block ${receipt.blockNumber} after ${confirmationsToWait} confirmations.`
         );
@@ -336,6 +340,11 @@ async function sendTokenFromEvmToSui(tokenAmount: number) {
     }
 
     const provider = new ethers.JsonRpcProvider(rpcUrl);
+    // Work around OP-Stack RPC endpoints whose eth_estimateGas is broken
+    // (returns "intrinsic gas too high" with no revert data for writes that
+    // estimate fine on healthy nodes). This covers ALL writes via this
+    // provider — ERC20 approve, ccipSend, etc. See applyGasEstimateFallback.
+    applyGasEstimateFallback(provider);
     const wallet = new ethers.Wallet(privateKey as string, provider);
 
     const ccipRouterContract = new ethers.Contract(

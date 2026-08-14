@@ -51,6 +51,14 @@ const argv = yargs(hideBin(process.argv))
         choices: [networkConfig.sui.networkName, networkConfig.suiMainnet.networkName, 'auto'],
         default: 'auto',
     })
+    .option('useOriginalOnramp', {
+        type: 'boolean',
+        description:
+            'Target the ORIGINAL (non-upgraded) Sui OnRamp package for ccip_send instead of the latest derived one. ' +
+            'The original OnRamp remains callable but its FeeQuoter config may predate newer dest chains, so sends to ' +
+            'recently added dest chains can abort.',
+        default: false,
+    })
     .parseSync();
 
 const privateKey = process.env.SUI_PRIVATE_KEY;
@@ -82,12 +90,13 @@ async function sendMessageFromSuiToEvm(messageString: string) {
         const data = prepareMessageData(encodedMessage);
 
         // Prepare extra args (non-zero gas limit for message transfer)
-        const extraArgs = encodeGenericExtraArgsV2(100_000n, true);
+        const extraArgs = encodeGenericExtraArgsV2(150_000n, true);
 
         // Prepare CCIP objects
         const { ccipObjectRef, latestCcipPackageId, latestOnRampPackageId, onrampState } = await prepareCcipObjects(
             chainConfig.chainSelector,
-            networkName
+            networkName,
+            { useOriginalOnramp: argv.useOriginalOnramp }
         );
 
         // Calculate fees and prepare fee token (no tokens being transferred)

@@ -38,7 +38,18 @@ export async function getOnRampFromRouter(
         const returnValue = result.results[0].returnValues[0];
         // The return value is an address (32 bytes)
         return bcs.Address.parse(new Uint8Array(returnValue[0]));
-    } else {
-        throw new Error('No return value from get_on_ramp call, possibly unsupported chain.');
     }
+
+    // See getFee.ts for the same diagnostic pattern — surface `result.error`
+    // (Move abort) instead of throwing a generic "unsupported chain" string.
+    console.error('--- get_on_ramp devInspect failure ---');
+    console.error('destChainSelector:', destChainSelector);
+    console.error('ccipRouterPackageId:', suiConfig.ccipRouterPackageId);
+    console.error('devInspect result:', JSON.stringify(result, null, 2));
+    console.error('--- end diagnostic ---');
+
+    if (result.error) {
+        throw new Error(`get_on_ramp aborted: ${result.error}`);
+    }
+    throw new Error('No return value from get_on_ramp call, possibly unsupported chain.');
 } 

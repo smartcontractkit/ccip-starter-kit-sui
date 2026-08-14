@@ -18,7 +18,6 @@ The system uses a **StatePointer pattern**:
 ## Key Files
 
 **In this directory:**
-- `config.ts` - Package configuration interfaces and predefined configs for CCIP packages
 - `stateFetcher.ts` - Finds the StatePointer object owned by a package
 - `packageFetcher.ts` - Main logic to derive and retrieve the latest package ID
 - `index.ts` - Clean exports for easy importing
@@ -105,7 +104,7 @@ Currently configured for CCIP packages:
 
 To add support for a new upgradeable package:
 
-1. Add configuration to `PACKAGE_UPGRADE_CONFIGS` in `config.ts`:
+1. Add configuration to `PACKAGE_UPGRADE_CONFIGS` in `helperConfig.ts` (the canonical location, co-located with `knownLatestPackageIds` / `knownStateObjects`). It is imported directly from `helperConfig.ts` by this sub-module's files and re-exported through `index.ts`:
 
 ```typescript
 export const PACKAGE_UPGRADE_CONFIGS: Record<string, PackageUpgradeConfig> = {
