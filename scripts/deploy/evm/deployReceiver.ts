@@ -31,6 +31,11 @@ const argv = yargs(hideBin(process.argv))
     description: 'Percentage to bump the RPC-reported gas price for legacy (non-1559) chains, so the tx is competitive (default: 10).',
     default: 10,
   })
+  .option('wait', {
+    type: 'boolean',
+    description: 'Wait for the deploy transaction to be mined before exiting (default: true). Pass --wait false to broadcast the tx, print the predicted contract address, and exit immediately without waiting for it to mine.',
+    default: true,
+  })
   .parseSync();
 
 const chainConfig = getEvmChainConfig(argv.evmChain);
@@ -134,16 +139,27 @@ async function deployReceiverOnEvm() {
     // The contract address is deterministic (CREATE = keccak(sender, nonce)) and
     // known the moment the tx is broadcast — ethers' ContractFactory computes it
     // from the sent tx (factory.js: getCreateAddress(sentTx)), with no receipt
-    // needed. Print it WITHOUT waiting for mining: on mainnet a deploy can take
-    // minutes to confirm and we don't want the script to block here. Track the
-    // tx hash above and verify it mined before using the receiver.
+    // needed — so we can print it up front in every mode, before deciding whether
+    // to block on mining.
     const contractAddress = await contract.getAddress();
     const addrExplorerUrl = explorer ? `${explorer}/address/${contractAddress}` : "";
     console.log(
-      `Receiver contract (pending mining): ${contractAddress}` +
+      `Receiver contract: ${contractAddress}` +
       (addrExplorerUrl ? `  ${addrExplorerUrl}` : "")
     );
-    console.log("Deploy tx broadcast complete; not waiting for mining. Track it with the tx hash above.");
+
+    if (argv.wait) {
+      // Default: block until the deploy tx is mined. On mainnet a deploy can
+      // take minutes to confirm; this guarantees the address above is usable
+      // by the time the script returns.
+      console.log("Waiting for the deploy transaction to be mined...");
+      await contract.waitForDeployment();
+      console.log(`✅ Receiver contract mined and confirmed at ${contractAddress}` + (addrExplorerUrl ? `  ${addrExplorerUrl}` : ""));
+    } else {
+      // Fire-and-forget: the address above is deterministic and will hold once
+      // the tx mines. Track it with the tx hash and verify on-chain before use.
+      console.log("Deploy tx broadcast complete; not waiting for mining. Track it with the tx hash above and verify it mined before using the receiver.");
+    }
   } catch (error) {
     console.error("Deployment failed:", error);
     throw error;
