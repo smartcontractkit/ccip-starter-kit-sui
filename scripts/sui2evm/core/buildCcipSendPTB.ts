@@ -27,6 +27,18 @@ interface CcipSendCallArgs {
 /**
  * Arguments for token-only transfer PTB
  * NOTE: ccipPkg, onrampPkg, and poolPkg should all be LATEST versions
+ *
+ * Receiver fields:
+ *   - `receiver` is the token recipient: it is passed to
+ *     `create_token_transfer_params` and becomes `token_params.token_receiver`,
+ *     which the Sui OnRamp requires to equal `SVMExtraArgsV1.tokenReceiver` and to
+ *     be non-zero for SVM token sends (onramp.move:818-827).
+ *   - `messageReceiver` is the CCIP `message.receiver` passed to `ccip_send`. For
+ *     EVM destinations it equals the token recipient (EVM has no separate
+ *     tokenReceiver), so it defaults to `receiver` when omitted. For SVM
+ *     token-only sends it must be the 32-byte zero address so the Solana OffRamp
+ *     does not try to CPI into a receiver program; for SVM message+token sends it
+ *     is the receiver PROGRAM the OffRamp CPIs into while tokens go to `receiver`.
  */
 export interface TokenTransferArgs {
   ccipPkg: string;       // Latest CCIP package ID
@@ -45,6 +57,8 @@ export interface TokenTransferArgs {
   feeTokenMetadata: CoinMetadata;
   destChainSelector: bigint;
   receiver: Uint8Array;
+  /** CCIP message.receiver; defaults to `receiver` (EVM). Set to 32 zero bytes for SVM token-only, or the receiver program for SVM message+token. */
+  messageReceiver?: Uint8Array;
   data: Uint8Array;
   extraArgs: Uint8Array;
   clockObjectId?: string;
@@ -185,7 +199,15 @@ function addCcipSendCall(tx: Transaction, args: CcipSendCallArgs): void {
  * Used by ccipSendTokenRouter.ts
  */
 export function buildTokenTransferPTB(tx: Transaction, args: TokenTransferArgs): Transaction {
-  // Create token transfer params
+  // `message.receiver` (ccip_send receiver arg). For EVM this equals the token
+  // recipient; for SVM token-only it is the 32-byte zero address (no program CPI)
+  // and for SVM message+token it is the receiver program. Defaults to `receiver`
+  // for back-compat with EVM callers that don't set messageReceiver.
+  const messageReceiver = args.messageReceiver ?? args.receiver;
+
+  // Create token transfer params — `receiver` is the token recipient
+  // (token_params.token_receiver), which the Sui OnRamp requires to equal
+  // SVMExtraArgsV1.tokenReceiver and to be non-zero for SVM token sends.
   const tokenParams = tx.moveCall({
     package: args.ccipPkg,
     module: 'onramp_state_helper',
@@ -215,7 +237,7 @@ export function buildTokenTransferPTB(tx: Transaction, args: TokenTransferArgs):
     ccipObjectRef: args.ccipObjectRef,
     onrampState: args.onrampState,
     destChainSelector: args.destChainSelector,
-    receiver: args.receiver,
+    receiver: messageReceiver,
     data: args.data,
     tokenParams,
     feeToken: args.feeToken,

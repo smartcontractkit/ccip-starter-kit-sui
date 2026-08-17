@@ -1,9 +1,8 @@
 import { Transaction } from '@mysten/sui/transactions';
-import { getFullnodeUrl, SuiClient } from '@mysten/sui/client';
 import { Ed25519Keypair } from '@mysten/sui/keypairs/ed25519';
 import { networkConfig } from '../../../helperConfig';
 import { getObjectFromPackage } from '../../sui-helper/getObjectFromPackage';
-import { type SuiNetworkName } from '../../sui-helper/suiNetwork';
+import { getSuiClient, type SuiNetworkName } from '../../sui-helper/suiNetwork';
 import yargs from "yargs";
 import { hideBin } from "yargs/helpers"
 import dotenv from 'dotenv';
@@ -26,8 +25,9 @@ const argv = yargs(hideBin(process.argv))
 
 const suiNetworkName = argv.network as SuiNetworkName;
 const isMainnet = suiNetworkName === networkConfig.suiMainnet.networkName;
-const suiNetwork = isMainnet ? 'mainnet' : 'testnet';
+const suiExplorerNetwork = isMainnet ? 'mainnet' : 'testnet';
 const suiConfig = isMainnet ? networkConfig.suiMainnet : networkConfig.sui;
+const suiClient = getSuiClient(suiNetworkName);
 const ccipPackageId = suiConfig.ccipPackageId;
 const ccipReceiverPackageId = argv.suiReceiver;
 const ccipReceiverModuleName = suiConfig.ccipReceiverModuleName;
@@ -40,7 +40,6 @@ if (!privateKey) {
 
 const keypair = Ed25519Keypair.fromSecretKey(privateKey);
 const senderAddress = keypair.getPublicKey().toSuiAddress();
-const suiClient = new SuiClient({ url: getFullnodeUrl(suiNetwork) });
 
 /**
  * Registers the receiver in the Receiver Registry so that the Executing DON
@@ -85,7 +84,7 @@ async function registerReceiver() {
         console.log('\n✅ Receiver registered successfully!');
         console.log(`Transaction Digest: ${result.digest}`);
         console.log(
-            `\nView transaction at: https://suiscan.xyz/${suiNetwork}/tx/${result.digest}`
+            `\nView transaction at: https://suiscan.xyz/${suiExplorerNetwork}/tx/${result.digest}`
         );
     } catch (error) {
         console.error('\n❌ Registration failed:', error);

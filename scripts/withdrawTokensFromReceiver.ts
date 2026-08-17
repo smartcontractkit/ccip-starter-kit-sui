@@ -1,5 +1,4 @@
 import { Transaction } from '@mysten/sui/transactions';
-import { getFullnodeUrl, SuiClient } from '@mysten/sui/client';
 import { Ed25519Keypair } from '@mysten/sui/keypairs/ed25519';
 import { ethers, Interface } from "ethers";
 import fs from "fs";
@@ -12,6 +11,7 @@ import { getEvmChainConfig, handleError, isValidSuiAddress, isValidEvmAddress } 
 import { getObjectFromPackage } from './sui-helper/getObjectFromPackage';
 import { getCoinWithBalance } from './sui-helper/splitCoin';
 import { getCoinDetails } from './sui-helper/getCoinDetails';
+import { getSuiClient, getSuiConfig, type SuiNetworkName } from './sui-helper/suiNetwork';
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -23,9 +23,9 @@ const CCIPReceiver_ABI = contractData.abi;
 const argv = yargs(hideBin(process.argv))
     .option('network', {
         type: 'string',
-        description: 'Specify the network to connect to',
+        description: 'Specify the network to connect to (Sui: suiTestnet/suiMainnet, or a supported EVM chain)',
         demandOption: true,
-        choices: [networkConfig.sui.networkName, ...supportedEvmChains]
+        choices: [networkConfig.sui.networkName, networkConfig.suiMainnet.networkName, ...supportedEvmChains]
     })
     .option('receiver', {
         type: 'string',
@@ -39,7 +39,7 @@ const argv = yargs(hideBin(process.argv))
     })
     .parseSync();
 
-async function withdrawTokenFromReceiverOnSui(receiver: string, to: string) {
+async function withdrawTokenFromReceiverOnSui(receiver: string, to: string, networkName: SuiNetworkName) {
     if (!isValidSuiAddress(receiver)) {
         throw new Error(`Invalid Sui receiver address: ${receiver}`);
     }
@@ -54,29 +54,31 @@ async function withdrawTokenFromReceiverOnSui(receiver: string, to: string) {
 
     const keypair = Ed25519Keypair.fromSecretKey(privateKey);
     const senderAddress = keypair.getPublicKey().toSuiAddress();
-    const suiClient = new SuiClient({ url: getFullnodeUrl('testnet') });
+    const suiClient = getSuiClient(networkName);
+    const suiConfig = getSuiConfig(networkName);
+    const suiExplorerNetwork = networkName === 'suiMainnet' ? 'mainnet' : 'testnet';
 
-    console.log(`🚀 Executing transaction from address: ${senderAddress}`);
+    console.log(`🚀 Executing transaction from address: ${senderAddress} on ${suiConfig.networkName}`);
 
     console.log(`\nAttempting to withdraw token from receiver...`);
 
     try {
         const tx = new Transaction();
 
-        const ccipReceiverState = await getObjectFromPackage(receiver, 'CCIPReceiverState');
+        const ccipReceiverState = await getObjectFromPackage(receiver, 'CCIPReceiverState', networkName);
 
         // Get coin details to extract coin type
-        const coinType = (await getCoinDetails(networkConfig.sui.ccipBnMCoinMetadataId)).coinType;
+        const coinType = (await getCoinDetails(suiConfig.ccipBnMCoinMetadataId, networkName)).coinType;
 
         tx.moveCall({
             package: receiver,
-            module: networkConfig.sui.ccipReceiverModuleName,
+            module: suiConfig.ccipReceiverModuleName,
             function: 'receive_and_send_coin',
             typeArguments: [coinType],
             arguments: [
                 tx.object(ccipReceiverState),
-                tx.object(await getObjectFromPackage(receiver, 'OwnerCap')),
-                tx.object(await getCoinWithBalance(networkConfig.sui.ccipBnMCoinMetadataId, 1n, ccipReceiverState)),
+                tx.object(await getObjectFromPackage(receiver, 'OwnerCap', networkName)),
+                tx.object(await getCoinWithBalance(suiConfig.ccipBnMCoinMetadataId, 1n, ccipReceiverState, networkName)),
                 tx.pure.address(to)
             ],
         });
@@ -87,7 +89,7 @@ async function withdrawTokenFromReceiverOnSui(receiver: string, to: string) {
             transaction: tx,
         });
 
-        console.log(`✅ Transaction successful: https://suiscan.xyz/testnet/tx/${result.digest}`);
+        console.log(`✅ Transaction successful: https://suiscan.xyz/${suiExplorerNetwork}/tx/${result.digest}`);
         console.log(`Tokens have been successfully withdrawn to ${to}`);
 
     } catch (error) {
@@ -144,8 +146,8 @@ async function withdrawTokenFromReceiverOnEvm(evmChainRpcUrl: string, explorerUr
 
 async function withdrawTokenFromReceiver() {
 
-    if (argv.network === networkConfig.sui.networkName) {
-        await withdrawTokenFromReceiverOnSui(argv.receiver, argv.to);
+    if (argv.network === networkConfig.sui.networkName || argv.network === networkConfig.suiMainnet.networkName) {
+        await withdrawTokenFromReceiverOnSui(argv.receiver, argv.to, argv.network as SuiNetworkName);
     }
     else {
         const chainConfig = getEvmChainConfig(argv.network);

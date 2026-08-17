@@ -117,12 +117,15 @@ export async function calculateAndPrepareFees(
 
     feeToken = tx.object(linkCoinId);
   } else {
-    // Using SUI (native token) for fees via tx.gas
+    // Split a dedicated fee coin off tx.gas so the assertion on the fee coin balance
+    // is independent of the auto-selected gas budget (avoids EUnexpectedWithdrawAmount
+    // when balance(tx.gas) - gas_budget happens to fall below the on-chain fee).
     console.log('💧 Using SUI for fees');
     console.log(`Base Fee (in MIST): ${baseFee.toString()} (${convertFromBaseUnit(baseFee, feeTokenMetadata.decimals)} SUI)`);
     console.log(`Fee with 20% buffer (in MIST): ${feeWithBuffer.toString()} (${convertFromBaseUnit(feeWithBuffer, feeTokenMetadata.decimals)} SUI)`);
 
-    feeToken = tx.gas;
+    const [nativeFeeCoin] = tx.splitCoins(tx.gas, [tx.pure.u64(feeWithBuffer)]);
+    feeToken = nativeFeeCoin!;
   }
 
   return {

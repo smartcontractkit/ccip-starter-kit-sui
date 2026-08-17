@@ -1,4 +1,4 @@
-import { Transaction } from '@mysten/sui/transactions';
+import { Transaction, type TransactionObjectArgument } from '@mysten/sui/transactions';
 import { Ed25519Keypair } from '@mysten/sui/keypairs/ed25519';
 import { AbiCoder } from 'ethers';
 import { networkConfig, supportedEvmChains } from "../../helperConfig";
@@ -51,6 +51,14 @@ const argv = yargs(hideBin(process.argv))
         choices: [networkConfig.sui.networkName, networkConfig.suiMainnet.networkName, 'auto'],
         default: 'auto',
     })
+    .option('useOriginalOnramp', {
+        type: 'boolean',
+        description:
+            'Target the ORIGINAL (non-upgraded) Sui OnRamp package for ccip_send instead of the latest derived one. ' +
+            'The original OnRamp remains callable but its FeeQuoter config may predate newer dest chains, so sends to ' +
+            'recently added dest chains can abort.',
+        default: false,
+    })
     .parseSync();
 
 const privateKey = process.env.SUI_PRIVATE_KEY;
@@ -82,12 +90,13 @@ async function sendMessageFromSuiToEvm(messageString: string) {
         const data = prepareMessageData(encodedMessage);
 
         // Prepare extra args (non-zero gas limit for message transfer)
-        const extraArgs = encodeGenericExtraArgsV2(100_000n, true);
+        const extraArgs = encodeGenericExtraArgsV2(150_000n, true);
 
         // Prepare CCIP objects
         const { ccipObjectRef, latestCcipPackageId, latestOnRampPackageId, onrampState } = await prepareCcipObjects(
             chainConfig.chainSelector,
-            networkName
+            networkName,
+            { useOriginalOnramp: argv.useOriginalOnramp }
         );
 
         // Calculate fees and prepare fee token (no tokens being transferred)
@@ -128,8 +137,26 @@ async function sendMessageFromSuiToEvm(messageString: string) {
 
         buildMessageOnlyPTB(tx, buildArgs);
 
+        // ccip_send borrows the fee coin by &mut and only withdraws the actual on-chain fee,
+        // so the split-off native fee coin has a leftover balance that must be handed back.
+        if (!useLinkForFees) {
+            tx.transferObjects([feeResult.feeToken as TransactionObjectArgument], senderAddress);
+        }
+
         // Execute transaction
-        const result = await suiClient.signAndExecuteTransaction({ signer: keypair, transaction: tx });
+        const result = await suiClient.signAndExecuteTransaction({
+            signer: keypair,
+            transaction: tx,
+            options: { showEffects: true, showEvents: true },
+        });
+        console.log(`Digest: ${result.digest} (https://suiscan.xyz/${suiExplorerNetwork}/tx/${result.digest})`);
+
+        // Surface Move aborts instead of masquerading as "No events found in transaction"
+        const status = result.effects?.status;
+        if (status?.status !== 'success') {
+            throw new Error(`ccip_send failed on-chain: ${status?.error ?? 'unknown error'}`);
+        }
+
         await suiClient.waitForTransaction({ digest: result.digest, options: { showEffects: true } });
 
         // Fetch and display CCIP Message ID

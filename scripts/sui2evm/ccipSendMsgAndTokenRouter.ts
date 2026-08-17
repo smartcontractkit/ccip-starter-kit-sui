@@ -1,4 +1,4 @@
-import { Transaction } from '@mysten/sui/transactions';
+import { Transaction, type TransactionObjectArgument } from '@mysten/sui/transactions';
 import { Ed25519Keypair } from '@mysten/sui/keypairs/ed25519';
 import { AbiCoder } from 'ethers';
 import { networkConfig, supportedEvmChains } from "../../helperConfig";
@@ -57,6 +57,14 @@ const argv = yargs(hideBin(process.argv))
         choices: [networkConfig.sui.networkName, networkConfig.suiMainnet.networkName, 'auto'],
         default: 'auto',
     })
+    .option('useOriginalOnramp', {
+        type: 'boolean',
+        description:
+            'Target the ORIGINAL (non-upgraded) Sui OnRamp package for ccip_send instead of the latest derived one. ' +
+            'The original OnRamp remains callable but its FeeQuoter config may predate newer dest chains, so sends to ' +
+            'recently added dest chains can abort.',
+        default: false,
+    })
     .parseSync();
 
 const privateKey = process.env.SUI_PRIVATE_KEY;
@@ -88,12 +96,13 @@ async function sendMessageAndTokenFromSuiToEvm(tokenAmount: number, messageStrin
         const data = prepareMessageData(encodedMessage);
 
         // Prepare extra args (non-zero gas limit for token + message transfer)
-        const extraArgs = encodeGenericExtraArgsV2(100_000n, true);
+        const extraArgs = encodeGenericExtraArgsV2(150_000n, true);
 
         // Prepare CCIP objects
         const { ccipObjectRef, latestCcipPackageId, latestOnRampPackageId, onrampState } = await prepareCcipObjects(
             chainConfig.chainSelector,
-            networkName
+            networkName,
+            { useOriginalOnramp: argv.useOriginalOnramp }
         );
 
         // Prepare token transfer info
@@ -159,6 +168,12 @@ async function sendMessageAndTokenFromSuiToEvm(tokenAmount: number, messageStrin
         };
 
         buildMessageAndTokenPTB(tx, buildArgs);
+
+        // ccip_send borrows the fee coin by &mut and only withdraws the actual on-chain fee,
+        // so the split-off native fee coin has a leftover balance that must be handed back.
+        if (!useLinkForFees) {
+            tx.transferObjects([feeResult.feeToken as TransactionObjectArgument], senderAddress);
+        }
 
         // Execute transaction
         const result = await suiClient.signAndExecuteTransaction({ signer: keypair, transaction: tx });

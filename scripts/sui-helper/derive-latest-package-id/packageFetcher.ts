@@ -1,5 +1,5 @@
 import { SuiClient } from '@mysten/sui/client';
-import { PackageUpgradeConfig } from './config';
+import { PackageUpgradeConfig } from '../../../helperConfig';
 import { deriveObjectIdWithVectorU8Key } from '../deriveObjectId';
 import { getStatePointerFromPackageId } from './stateFetcher';
 

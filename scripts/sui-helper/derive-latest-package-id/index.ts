@@ -3,4 +3,4 @@
  */
 export { getLatestPackageId } from './packageFetcher';
 export { getStatePointerFromPackageId } from './stateFetcher';
-export { PackageUpgradeConfig, PACKAGE_UPGRADE_CONFIGS } from './config';
+export { PackageUpgradeConfig, PACKAGE_UPGRADE_CONFIGS } from '../../../helperConfig';

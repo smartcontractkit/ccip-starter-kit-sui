@@ -1,25 +1,33 @@
-import { getFullnodeUrl, SuiClient } from '@mysten/sui/client';
 import { toHex } from '@mysten/sui/utils';
 import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
-import { networkConfig } from "../../helperConfig";
 import { MessageExecutionState } from '../utils/utils';
-
-const suiClient = new SuiClient({ url: getFullnodeUrl('testnet') });
-
-// Use original package ID for event queries (not latest)
-// Events are always emitted with the original package ID
-const ccipOfframpPackageId = networkConfig.sui.ccipOfframpPackageId;
-const ccipOfframpModuleName = networkConfig.sui.ccipOfframpModuleName;
-const eventType = `${ccipOfframpPackageId}::${ccipOfframpModuleName}::ExecutionStateChanged`;
+import { getSuiClient, getSuiConfig, type SuiNetworkName } from '../sui-helper/suiNetwork';
 
 const argv = yargs(hideBin(process.argv))
+    .option('network', {
+        type: 'string',
+        description: 'Sui network to query (defaults to suiTestnet)',
+        default: 'suiTestnet',
+        choices: ['suiTestnet', 'suiMainnet'],
+    })
     .option('msgId', {
         type: 'string',
         description: 'Specify the CCIP Message Id (with or without 0x prefix)',
         demandOption: true,
     })
     .parseSync();
+
+const networkName: SuiNetworkName = argv.network as SuiNetworkName;
+const suiClient = getSuiClient(networkName);
+const suiConfig = getSuiConfig(networkName);
+
+// Use original package ID for event queries (not latest)
+// Events are always emitted with the original package ID
+const ccipOfframpPackageId = suiConfig.ccipOfframpPackageId;
+const ccipOfframpModuleName = suiConfig.ccipOfframpModuleName;
+const eventType = `${ccipOfframpPackageId}::${ccipOfframpModuleName}::ExecutionStateChanged`;
+const suiExplorerNetwork = networkName === 'suiMainnet' ? 'mainnet' : 'testnet';
 
 async function getModuleEvents() {
     try {
@@ -88,7 +96,7 @@ async function getModuleEvents() {
             const txDigest = event.id.txDigest;
             
             console.log('✅ Message found!');
-            console.log(`   Transaction: https://suiscan.xyz/testnet/tx/${txDigest}`);
+            console.log(`   Transaction: https://suiscan.xyz/${suiExplorerNetwork}/tx/${txDigest}`);
             console.log(`   Sequence Number: ${eventData.sequence_number}`);
             console.log(`   Source Chain Selector: ${eventData.source_chain_selector}`);
             
